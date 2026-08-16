@@ -1,47 +1,57 @@
 import cv2
 import numpy as np
+import requests
 import matplotlib.pyplot as plt
 
-# 1. โหลดภาพ (เปลี่ยน 'sample.jpg' เป็นพาทไฟล์ภาพของคุณ)
-# ใช้ cv2.cvtColor เพื่อสลับสีจาก BGR (ค่าเริ่มต้นของ OpenCV) เป็น RGB ให้แสดงผลได้ถูกต้อง
-img_bgr = cv2.imread('sample.jpg')
-if img_bgr is None:
-    print("ไม่พบไฟล์ภาพ กรุณาตรวจสอบพาท")
-else:
+# 1. ระบุ URL ของรูปภาพ
+# (สามารถเปลี่ยนเป็นลิงก์ภาพตัวอย่างอื่นๆ ที่ต้องการทดสอบได้)
+url = "https://upload.wikimedia.org/wikipedia/commons/3/3a/Cat03.jpg?utm_source=th.wikipedia.org&utm_campaign=index&utm_content=original"
+
+# เพิ่ม headers เพื่อจำลองว่าเป็นเว็บเบราว์เซอร์
+headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+}
+
+print("กำลังดาวน์โหลดรูปภาพจาก URL...")
+# ใส่ headers เข้าไปใน requests.get
+response = requests.get(url, headers=headers)
+# ตรวจสอบว่าดาวน์โหลดสำเร็จหรื
+if response.status_code == 200:
+    # 2. แปลงข้อมูลไบต์เป็นอาร์เรย์และถอดรหัสเป็นรูปภาพด้วย OpenCV
+    image_array = np.frombuffer(response.content, np.uint8)
+    img_bgr = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
+
+    # แปลงสี BGR เป็น RGB ให้แสดงผลได้ถูกต้อง
     img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
 
+    print("ดาวน์โหลดสำเร็จ! กำลังประมวลผลภาพ...")
+
     # ==========================================
-    # 1. Resize (ปรับขนาดภาพ)
+    # ขั้นตอนที่ 1: Resize (ปรับขนาดภาพ)
     # ==========================================
-    # ปรับขนาดภาพให้เป็น 640x640 (ขนาดที่นิยมใช้เป็น Input ของโมเดลต่างๆ)
+    # ปรับขนาดภาพให้เป็น 640x640 ซึ่งเป็นขนาดมาตรฐานสำหรับโมเดล Object Detection
     target_size = (640, 640)
     resized_img = cv2.resize(img_rgb, target_size, interpolation=cv2.INTER_LINEAR)
 
     # ==========================================
-    # 2. Denoise (ลดสัญญาณรบกวน)
+    # ขั้นตอนที่ 2: Denoise (ลดสัญญาณรบกวน)
     # ==========================================
-    # ใช้ฟังก์ชัน Non-Local Means Denoising สำหรับภาพสี
-    # ช่วยกำจัดเกรนหรือ Noise ในภาพถ่ายสภาพแวดล้อมจริง โดยยังคงความคมชัดของขอบวัตถุ (Edges)
-    # พารามิเตอร์: src, dst, h, hColor, templateWindowSize, searchWindowSize
+    # ใช้ Non-Local Means Denoising เพื่อลดเกรนภาพโดยยังคงขอบวัตถุไว้
     denoised_img = cv2.fastNlMeansDenoisingColored(resized_img, None, 10, 10, 7, 21)
-    
-    # ทางเลือกเพิ่มเติม: ถ้าต้องการแค่เบลอภาพเพื่อลด Noise แบบง่ายๆ สามารถใช้ GaussianBlur ได้
-    # blurred_img = cv2.GaussianBlur(resized_img, (5, 5), 0)
 
     # ==========================================
-    # 3. Color Normalization (ปรับบรรทัดฐานของค่าสี)
+    # ขั้นตอนที่ 3: Color Normalization (ปรับบรรทัดฐานของค่าสี)
     # ==========================================
-    # แบบที่ 1: การใช้ cv2.normalize (ยืด-หด การกระจายตัวของพิกเซล)
-    # มีประโยชน์เวลาเจอภาพที่มืดหรือสว่างเกินไป (Contrast Stretching)
+    # แบบที่ A: สำหรับแสดงผล (Contrast Stretching ให้อยู่ในช่วง 0-255)
     norm_img_cv2 = np.zeros_like(denoised_img)
     cv2.normalize(denoised_img, norm_img_cv2, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX)
 
-    # แบบที่ 2: Min-Max Scaling ด้วย NumPy (นิยมใช้ก่อนโยนเข้าโมเดล Machine Learning)
-    # แปลงช่วงพิกเซลจาก 0-255 ให้กลายเป็น 0.0 - 1.0
+    # แบบที่ B: สำหรับส่งเข้าเทรนโมเดล (Min-Max Scaling ให้อยู่ในช่วง 0.0 - 1.0)
+    # ตัวแปรนี้พร้อมนำไปจัดรูปเป็น Tensor หรือ Array เข้าโมเดลได้เลย
     norm_img_model = denoised_img.astype('float32') / 255.0
 
     # ==========================================
-    # แสดงผลเปรียบเทียบ (ใช้ Matplotlib เพื่อความสะดวกหากรันใน Colab/Jupyter)
+    # ขั้นตอนที่ 4: แสดงผลเปรียบเทียบ
     # ==========================================
     plt.figure(figsize=(15, 5))
 
@@ -56,7 +66,7 @@ else:
     plt.axis('off')
 
     plt.subplot(1, 4, 3)
-    plt.title("3. Denoised (NLMeans)")
+    plt.title("3. Denoised")
     plt.imshow(denoised_img)
     plt.axis('off')
 
@@ -67,3 +77,8 @@ else:
 
     plt.tight_layout()
     plt.show()
+
+    print("ประมวลผลเสร็จสิ้น!")
+
+else:
+    print(f"เกิดข้อผิดพลาด: ไม่สามารถโหลดรูปภาพได้ (Status Code: {response.status_code})")
